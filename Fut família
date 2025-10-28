@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Manager Soccer - Web (Noite)</title>
+<style>
+:root{color-scheme:dark}
+body{background:#0b0f14;color:#e6eef6;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;margin:0;padding:12px;max-width:900px;margin:auto}
+h1{font-size:1.2rem;margin:0}
+.card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);padding:12px;border-radius:12px;margin-top:12px;box-shadow:0 6px 18px rgba(2,6,12,0.6)}
+input,select,button{font-size:1rem;border-radius:10px;padding:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+button{cursor:pointer}
+pre{white-space:pre-wrap;background:#071018;padding:10px;border-radius:8px;color:#cfe9ff;overflow:auto}
+.list{height:160px;overflow:auto;border:1px solid rgba(255,255,255,0.03);border-radius:8px;padding:6px}
+.btn-primary{background:#0f1724;border:1px solid #2b7cff;padding:8px 12px;color:#2b7cff}
+.smallmuted{color:#7f98ad;font-size:0.85rem}
+</style>
+</head>
+<body>
+
+<h1>Manager Soccer — Brasileirão (Noite)</h1>
+<div class="smallmuted" id="status">Desconectado</div>
+
+<div class="card">
+<label>WebSocket URL:</label>
+<input id="wsurl" value="wss://seu-servidor.onrender.com/ws" />
+<button id="btnConnect" class="btn-primary">Conectar</button>
+<button id="btnDisconnect">Desconectar</button>
+</div>
+
+<div class="card">
+<label>Seu nome:</label>
+<input id="name" placeholder="Ex: Pablo" />
+<button id="btnRegister">Registrar</button>
+</div>
+
+<div class="card">
+<h3>Times</h3>
+<select id="teamsSelect" class="list" size="6"></select>
+<button id="btnList">Listar Times</button>
+<button id="btnChoose">Escolher Time</button>
+<div id="teamInfo" class="smallmuted"></div>
+</div>
+
+<div class="card">
+<h3>Mercado</h3>
+<select id="marketList" class="list" size="6"></select>
+<button id="btnMarket">Atualizar Mercado</button>
+<button id="btnBuy">Comprar Selecionado</button>
+</div>
+
+<div class="card">
+<h3>Comandos & Tabela</h3>
+<button id="btnTable">Mostrar Tabela</button>
+<button id="btnStartRound">Iniciar Rodada</button>
+</div>
+
+<div class="card">
+<h3>Mensagens</h3>
+<pre id="log" style="height:260px"></pre>
+</div>
+
+<script>
+let ws=null;
+const logEl = document.getElementById('log');
+function log(v){ logEl.textContent = new Date().toLocaleTimeString() + ' — ' + v + '\n' + logEl.textContent }
+
+document.getElementById('btnConnect').onclick = ()=>{
+  const url = document.getElementById('wsurl').value.trim();
+  if(ws) ws.close();
+  ws = new WebSocket(url);
+  ws.onopen = ()=>{ document.getElementById('status').textContent='Conectado'; log('Conectado a '+url) }
+  ws.onclose = ()=>{ document.getElementById('status').textContent='Desconectado'; log('Desconectado') }
+  ws.onerror = (e)=>{ log('Erro: '+e) }
+  ws.onmessage = (ev)=>{ try{ const msg=JSON.parse(ev.data); handleMsg(msg) }catch(e){ log('Mensagem inválida') } }
+}
+
+document.getElementById('btnDisconnect').onclick = ()=>{ if(ws) ws.close(); ws=null; document.getElementById('status').textContent='Desconectado' }
+
+document.getElementById('btnRegister').onclick = ()=>{
+  const name=document.getElementById('name').value.trim();
+  if(!ws){ alert('Conecte primeiro'); return }
+  ws.send(JSON.stringify({type:'register', data:{name:name||'Jogador'}}))
+}
+
+function handleMsg(msg){
+  if(msg.type==='welcome') log('[Servidor] '+msg.data)
+  else if(msg.type==='registered') log('[Servidor] '+msg.data)
+  else if(msg.type==='teams_list'){
+    const sel=document.getElementById('teamsSelect'); sel.innerHTML=''; msg.data.forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; sel.appendChild(o) })
+    log('[Servidor] Lista de times atualizada')
+  }
+  else if(msg.type==='market_list'){
+    const sel=document.getElementById('marketList'); sel.innerHTML=''; msg.data.forEach(m=>{ const o=document.createElement('option'); o.value=JSON.stringify(m); o.textContent=`${m.player} — ${m.asking} (${m.team})`; sel.appendChild(o) })
+    log('[Servidor] Mercado atualizado')
+  }
+  else if(msg.type==='request_tactic'){
+    const team = msg.data.team || '';
+    const tac = prompt('Servidor pede tática para '+team+' (Ofensiva/Equilibrada/Defensiva)','Equilibrada') || 'Equilibrada';
+    ws.send(JSON.stringify({type:'tactic_reply', data:{team:team, tactic:tac}}))
+    log('Enviado tática: '+tac)
+  }
+  else if(msg.type==='match_summary'){ log('[Resumo]\n'+msg.data) }
+  else if(msg.type==='table'){ log('[Tabela]\n'+JSON.stringify(msg.data,null,2)) }
+  else if(msg.type==='info'){ log('[Info] '+msg.data) }
+  else log('[Msg] '+JSON.stringify(msg))
+}
+
+document.getElementById('btnList').onclick = ()=>{ if(!ws){alert('Conecte');return} ws.send(JSON.stringify({type:'list_teams'})) }
+document.getElementById('btnChoose').onclick = ()=>{
+  const sel=document.getElementById('teamsSelect'); const team=sel.value;
+  if(!team){ alert('Selecione um time'); return }
+  ws.send(JSON.stringify({type:'choose_team', data:{team:team}}))
+  log('Pedido para escolher time: '+team)
+}
+document.getElementById('btnMarket').onclick = ()=>{ if(!ws){alert('Conecte');return} ws.send(JSON.stringify({type:'list_market'})) }
+document.getElementById('btnBuy').onclick = ()=>{
+  const sel=document.getElementById('marketList'); if(!sel.value){ alert('Selecione jogador'); return }
+  const obj=JSON.parse(sel.value);
+  ws.send(JSON.stringify({type:'buy_player', data:{seller:obj.team, player:obj.player}}))
+  log('Pedido de compra: '+obj.player+' / '+obj.team)
+}
+document.getElementById('btnTable').onclick = ()=>{ if(!ws){alert('Conecte');return} ws.send(JSON.stringify({type:'get_table'})) }
+
+document.getElementById('btnStartRound').onclick = ()=>{
+  if(!ws){alert('Conecte');return}
+  if(confirm('Iniciar rodada no servidor?')){
+    ws.send(JSON.stringify({type:'info', data:'player_requests_start'}))
+    log('Pedido enviado ao servidor para iniciar rodada')
+  }
+}
+</script>
+</body>
+</html>
